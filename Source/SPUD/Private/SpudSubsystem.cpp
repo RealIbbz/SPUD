@@ -8,24 +8,23 @@
 #include "TimerManager.h"
 #include "HAL/FileManager.h"
 #include "Async/Async.h"
+#include "SpudCustomSaveInfo.h"
 
 DEFINE_LOG_CATEGORY(LogSpudSubsystem)
-
 
 #define SPUD_QUICKSAVE_SLOTNAME "__QuickSave__"
 #define SPUD_AUTOSAVE_SLOTNAME "__AutoSave__"
 
-
-void USpudSubsystem::Initialize(FSubsystemCollectionBase& Collection)
+void USpudSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 {
 	bIsTearingDown = false;
 	// Note: this will register for clients too, but callbacks will be ignored
 	// We can't call ServerCheck() here because GameMode won't be valid (which is what we use to determine server mode)
 	OnPostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &USpudSubsystem::OnPostLoadMap);
 	OnPreLoadMapHandle = FCoreUObjectDelegates::PreLoadMap.AddUObject(this, &USpudSubsystem::OnPreLoadMap);
-	
+
 	OnSeamlessTravelHandle = FWorldDelegates::OnSeamlessTravelTransition.AddUObject(this, &USpudSubsystem::OnSeamlessTravelTransition);
-	
+
 #if WITH_EDITORONLY_DATA
 	// The one problem we have is that in PIE mode, PostLoadMap doesn't get fired for the current map you're on
 	// So we'll need to trigger it manually
@@ -36,15 +35,14 @@ void USpudSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	if (World && World->WorldType == EWorldType::PIE)
 	{
 		FTimerHandle TempHandle;
-		GetWorld()->GetTimerManager().SetTimer(TempHandle,[this]()
-		{
-			// TODO: make this more configurable, use a known save etc
-			NewGame(false);
-
-		}, 0.2, false);
+		GetWorld()->GetTimerManager().SetTimer(
+			TempHandle, [this]()
+			{
+				// TODO: make this more configurable, use a known save etc
+				NewGame(false); },
+			0.2, false);
 	}
 
-	
 #endif
 }
 
@@ -52,7 +50,7 @@ void USpudSubsystem::Deinitialize()
 {
 	Super::Deinitialize();
 	bIsTearingDown = true;
-	
+
 	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(OnPostLoadMapHandle);
 	FCoreUObjectDelegates::PreLoadMap.Remove(OnPreLoadMapHandle);
 	FWorldDelegates::OnSeamlessTravelTransition.Remove(OnSeamlessTravelHandle);
@@ -60,10 +58,10 @@ void USpudSubsystem::Deinitialize()
 	// Clean up streaming level event listeners, as they may fire after we've been destroyed
 	for (auto It = MonitoredStreamingLevels.CreateIterator(); It; ++It)
 	{
-		ULevelStreaming* const Level = It.Key();
+		ULevelStreaming *const Level = It.Key();
 		if (ensure(Level))
 		{
-			USpudStreamingLevelWrapper* const Wrapper = It.Value();
+			USpudStreamingLevelWrapper *const Wrapper = It.Value();
 			Level->OnLevelShown.RemoveAll(Wrapper);
 			Level->OnLevelHidden.RemoveAll(Wrapper);
 			It.RemoveCurrent();
@@ -71,14 +69,13 @@ void USpudSubsystem::Deinitialize()
 	}
 }
 
-
 void USpudSubsystem::NewGame(bool bCheckServerOnly, bool bAfterLevelLoad)
 {
 	if (bCheckServerOnly && !ServerCheck(true))
 		return;
-		
+
 	EndGame();
-	
+
 	// EndGame will have unsubscribed from all current levels
 	// Re-sub if we want to keep state for currently loaded levels, or not if starting from next level load
 	// This allows the caller to call NewGame mid-game and then load a map, and the current levels won't try to save
@@ -104,7 +101,7 @@ bool USpudSubsystem::ServerCheck(bool LogWarning) const
 	auto World = GI->GetWorld();
 	if (!World)
 		return true;
-	
+
 	return World->GetAuthGameMode() != nullptr;
 }
 
@@ -112,7 +109,7 @@ void USpudSubsystem::EndGame()
 {
 	if (ActiveState)
 		ActiveState->ResetState();
-	
+
 	// Allow GC to collect
 	ActiveState = nullptr;
 
@@ -121,20 +118,20 @@ void USpudSubsystem::EndGame()
 	IsRestoringState = false;
 }
 
-void USpudSubsystem::AutoSaveGame(FText Title, bool bTakeScreenshot, const USpudCustomSaveInfo* ExtraInfo)
+void USpudSubsystem::AutoSaveGame(FText Title, bool bTakeScreenshot, const USpudCustomSaveInfo *ExtraInfo)
 {
 	SaveGame(SPUD_AUTOSAVE_SLOTNAME,
-		Title.IsEmpty() ? NSLOCTEXT("Spud", "AutoSaveTitle", "Autosave") : Title,
-		bTakeScreenshot,
-		ExtraInfo);
+			 Title.IsEmpty() ? NSLOCTEXT("Spud", "AutoSaveTitle", "Autosave") : Title,
+			 bTakeScreenshot,
+			 ExtraInfo);
 }
 
-void USpudSubsystem::QuickSaveGame(FText Title, bool bTakeScreenshot, const USpudCustomSaveInfo* ExtraInfo)
+void USpudSubsystem::QuickSaveGame(FText Title, bool bTakeScreenshot, const USpudCustomSaveInfo *ExtraInfo)
 {
 	SaveGame(SPUD_QUICKSAVE_SLOTNAME,
-		Title.IsEmpty() ? NSLOCTEXT("Spud", "QuickSaveTitle", "Quick Save") : Title,
-		bTakeScreenshot,
-		ExtraInfo);
+			 Title.IsEmpty() ? NSLOCTEXT("Spud", "QuickSaveTitle", "Quick Save") : Title,
+			 bTakeScreenshot,
+			 ExtraInfo);
 }
 
 void USpudSubsystem::QuickLoadGame()
@@ -142,13 +139,12 @@ void USpudSubsystem::QuickLoadGame()
 	LoadGame(SPUD_QUICKSAVE_SLOTNAME);
 }
 
-
-bool USpudSubsystem::IsQuickSave(const FString& SlotName)
+bool USpudSubsystem::IsQuickSave(const FString &SlotName)
 {
 	return SlotName == SPUD_QUICKSAVE_SLOTNAME;
 }
 
-bool USpudSubsystem::IsAutoSave(const FString& SlotName)
+bool USpudSubsystem::IsAutoSave(const FString &SlotName)
 {
 	return SlotName == SPUD_AUTOSAVE_SLOTNAME;
 }
@@ -158,7 +154,7 @@ void USpudSubsystem::NotifyLevelLoadedExternally(FName LevelName)
 	HandleLevelLoaded(LevelName);
 }
 
-void USpudSubsystem::NotifyLevelUnloadedExternally(ULevel* Level)
+void USpudSubsystem::NotifyLevelUnloadedExternally(ULevel *Level)
 {
 	HandleLevelUnloaded(Level);
 }
@@ -170,7 +166,7 @@ void USpudSubsystem::LoadLatestSaveGame()
 		LoadGame(Latest->SlotName);
 }
 
-void USpudSubsystem::OnPreLoadMap(const FString& MapName)
+void USpudSubsystem::OnPreLoadMap(const FString &MapName)
 {
 	if (!ServerCheck(false))
 		return;
@@ -180,7 +176,7 @@ void USpudSubsystem::OnPreLoadMap(const FString& MapName)
 	LevelRequests.Empty();
 	StopUnloadTimer();
 	MonitoredStreamingLevels.Empty();
-	
+
 	FirstStreamRequestSinceMapLoad = true;
 
 	// When we transition out of a map while enabled, save contents
@@ -199,7 +195,7 @@ void USpudSubsystem::OnPreLoadMap(const FString& MapName)
 	}
 }
 
-void USpudSubsystem::OnSeamlessTravelTransition(UWorld* World)
+void USpudSubsystem::OnSeamlessTravelTransition(UWorld *World)
 {
 	if (IsValid(World))
 	{
@@ -210,13 +206,12 @@ void USpudSubsystem::OnSeamlessTravelTransition(UWorld* World)
 	}
 }
 
-void USpudSubsystem::OnPostLoadMap(UWorld* World)
+void USpudSubsystem::OnPostLoadMap(UWorld *World)
 {
 	if (!ServerCheck(false))
 		return;
 
-
-	switch(CurrentState)
+	switch (CurrentState)
 	{
 	case ESpudSystemState::NewGameOnNextLevel:
 		if (IsValid(World)) // nullptr seems possible if load is aborted or something?
@@ -239,9 +234,9 @@ void USpudSubsystem::OnPostLoadMap(UWorld* World)
 		{
 			const FString LevelName = UGameplayStatics::GetCurrentLevelName(World);
 			UE_LOG(LogSpudSubsystem,
-			       Verbose,
-			       TEXT("OnPostLoadMap restore: %s"),
-			       *LevelName);
+				   Verbose,
+				   TEXT("OnPostLoadMap restore: %s"),
+				   *LevelName);
 
 			IsRestoringState = true;
 
@@ -249,7 +244,7 @@ void USpudSubsystem::OnPostLoadMap(UWorld* World)
 			PreLevelRestore.Broadcast(LevelName);
 			State->RestoreLoadedWorld(World);
 			PostLevelRestore.Broadcast(LevelName, true);
-			
+
 			IsRestoringState = false;
 			// We need to subscribe to ALL currently loaded levels, because of "AlwaysLoaded" sublevels
 			SubscribeAllLevelObjectEvents();
@@ -265,23 +260,22 @@ void USpudSubsystem::OnPostLoadMap(UWorld* World)
 		break;
 	default:
 		break;
-			
 	}
 
 	PostTravelToNewMap.Broadcast();
 }
 
-void USpudSubsystem::SaveGame(const FString& SlotName, const FText& Title, bool bTakeScreenshot, const USpudCustomSaveInfo* ExtraInfo)
+void USpudSubsystem::SaveGame(const FString &SlotName, const FText &Title, bool bTakeScreenshot, const USpudCustomSaveInfo *ExtraInfo)
 {
 	if (!ServerCheck(true))
 	{
 		SaveComplete(SlotName, false);
-        return;
+		return;
 	}
 
 	if (SlotName.IsEmpty())
 	{
-		UE_LOG(LogSpudSubsystem, Error, TEXT("Cannot save a game with a blank slot name"));		
+		UE_LOG(LogSpudSubsystem, Error, TEXT("Cannot save a game with a blank slot name"));
 		SaveComplete(SlotName, false);
 		return;
 	}
@@ -305,7 +299,7 @@ void USpudSubsystem::SaveGame(const FString& SlotName, const FText& Title, bool 
 		SlotNameInProgress = SlotName;
 		TitleInProgress = Title;
 		ExtraInfoInProgress = ExtraInfo;
-		UGameViewportClient* ViewportClient = UGameplayStatics::GetPlayerController(GetWorld(), 0)->GetLocalPlayer()->ViewportClient;
+		UGameViewportClient *ViewportClient = UGameplayStatics::GetPlayerController(GetWorld(), 0)->GetLocalPlayer()->ViewportClient;
 		OnScreenshotHandle = ViewportClient->OnScreenshotCaptured().AddUObject(this, &USpudSubsystem::OnScreenshotCaptured);
 		FScreenshotRequest::RequestScreenshot(false);
 		// OnScreenShotCaptured will finish
@@ -320,7 +314,6 @@ void USpudSubsystem::SaveGame(const FString& SlotName, const FText& Title, bool 
 	}
 }
 
-
 void USpudSubsystem::ScreenshotTimedOut()
 {
 	// We failed to get a screenshot back in time
@@ -328,18 +321,17 @@ void USpudSubsystem::ScreenshotTimedOut()
 	// is requested, that request is never fulfilled
 
 	UE_LOG(LogSpudSubsystem, Error, TEXT("Request for save screenshot timed out. This is most likely a UE4 bug: "
-		"Widget Blueprints being open in the editor during PIE seems to break screenshots. Completing save game without a screenshot."))
+										 "Widget Blueprints being open in the editor during PIE seems to break screenshots. Completing save game without a screenshot."))
 
 	ScreenshotTimeout = 0;
 	FinishSaveGame(SlotNameInProgress, TitleInProgress, ExtraInfoInProgress, nullptr);
-	
 }
 
-void USpudSubsystem::OnScreenshotCaptured(int32 Width, int32 Height, const TArray<FColor>& Colours)
+void USpudSubsystem::OnScreenshotCaptured(int32 Width, int32 Height, const TArray<FColor> &Colours)
 {
 	ScreenshotTimeout = 0;
 
-	UGameViewportClient* ViewportClient = UGameplayStatics::GetPlayerController(GetWorld(), 0)->GetLocalPlayer()->ViewportClient;
+	UGameViewportClient *ViewportClient = UGameplayStatics::GetPlayerController(GetWorld(), 0)->GetLocalPlayer()->ViewportClient;
 	ViewportClient->OnScreenshotCaptured().Remove(OnScreenshotHandle);
 	OnScreenshotHandle.Reset();
 
@@ -354,11 +346,10 @@ void USpudSubsystem::OnScreenshotCaptured(int32 Width, int32 Height, const TArra
 #else
 	FImageUtils::CompressImageArray(ScreenshotWidth, ScreenshotHeight, RawDataCroppedResized, PngData);
 #endif
-	
+
 	FinishSaveGame(SlotNameInProgress, TitleInProgress, ExtraInfoInProgress, &PngData);
-	
 }
-void USpudSubsystem::FinishSaveGame(const FString& SlotName, const FText& Title, const USpudCustomSaveInfo* ExtraInfo, TArray<uint8>* ScreenshotData)
+void USpudSubsystem::FinishSaveGame(const FString &SlotName, const FText &Title, const USpudCustomSaveInfo *ExtraInfo, TArray<uint8> *ScreenshotData)
 {
 	auto State = GetActiveState();
 	auto World = GetWorld();
@@ -368,7 +359,7 @@ void USpudSubsystem::FinishSaveGame(const FString& SlotName, const FText& Title,
 	// b) we may not be updating all levels and must retain for the others
 
 	State->StoreWorldGlobals(World);
-	
+
 	for (auto Ptr : GlobalObjects)
 	{
 		if (Ptr.IsValid())
@@ -388,17 +379,17 @@ void USpudSubsystem::FinishSaveGame(const FString& SlotName, const FText& Title,
 	State->SetCustomSaveInfo(ExtraInfo);
 	if (ScreenshotData)
 		State->SetScreenshot(*ScreenshotData);
-	
+
 	// UGameplayStatics::SaveGameToSlot prefixes our save with a lot of crap that we don't need
 	// And also wraps it with FObjectAndNameAsStringProxyArchive, which again we don't need
 	// Plus it writes it all to memory first, which we don't need another copy of. Write direct to file
 	// I'm not sure if the save game system doesn't do this because of some console hardware issues, but
 	// I'll worry about that at some later point
-	IFileManager& FileMgr = IFileManager::Get();
+	IFileManager &FileMgr = IFileManager::Get();
 	auto Archive = TUniquePtr<FArchive>(FileMgr.CreateFileWriter(*GetSaveGameFilePath(SlotName)));
 
 	bool SaveOK;
-	if(Archive)
+	if (Archive)
 	{
 		State->SaveToArchive(*Archive);
 		// Always explicitly close to catch errors from flush/close
@@ -422,10 +413,9 @@ void USpudSubsystem::FinishSaveGame(const FString& SlotName, const FText& Title,
 	}
 
 	SaveComplete(SlotName, SaveOK);
-
 }
 
-void USpudSubsystem::SaveComplete(const FString& SlotName, bool bSuccess)
+void USpudSubsystem::SaveComplete(const FString &SlotName, bool bSuccess)
 {
 	CurrentState = ESpudSystemState::RunningIdle;
 	PostSaveGame.Broadcast(SlotName, bSuccess);
@@ -443,7 +433,7 @@ void USpudSubsystem::HandleLevelLoaded(FName LevelName)
 	GetActiveState()->PreLoadLevelData(LevelName.ToString());
 
 	AsyncTask(ENamedThreads::GameThread, [this, LevelName]()
-	{
+			  {
 		// But also add a slight delay so we get a tick in between so physics works
 		FTimerHandle H;
 		if (UWorld* World = GetWorld())
@@ -452,11 +442,10 @@ void USpudSubsystem::HandleLevelLoaded(FName LevelName)
 			{
 				PostLoadStreamLevelGameThread(LevelName);
 			}, 0.01, false);
-		}
-	});
+		} });
 }
 
-void USpudSubsystem::HandleLevelUnloaded(ULevel* Level)
+void USpudSubsystem::HandleLevelUnloaded(ULevel *Level)
 {
 	UnsubscribeLevelObjectEvents(Level);
 
@@ -465,7 +454,7 @@ void USpudSubsystem::HandleLevelUnloaded(ULevel* Level)
 		// NOTE: even though we're attempting to NOT do this while tearing down, in PIE it will still happen on end play
 		// This is because for some reason, in PIE the GameInstance shutdown function is called AFTER the levels are flushed,
 		// compared to before in normal game shutdown. See the difference between UEditorEngine::EndPlayMap() and UGameEngine::PreExit()
-		// We can't really fix this; we could listen on FEditorDelegates::PrePIEEnded but that would require linking the editor module (bleh) 
+		// We can't really fix this; we could listen on FEditorDelegates::PrePIEEnded but that would require linking the editor module (bleh)
 		// save the state
 		// when loading game we will unload the current level and streaming and don't want to restore the active state from that
 		// After storing, the level data is released so doesn't take up memory any more
@@ -473,17 +462,15 @@ void USpudSubsystem::HandleLevelUnloaded(ULevel* Level)
 	}
 }
 
-
-
-void USpudSubsystem::StoreWorld(UWorld* World, bool bReleaseLevels, bool bBlocking)
+void USpudSubsystem::StoreWorld(UWorld *World, bool bReleaseLevels, bool bBlocking)
 {
-	for (auto && Level : World->GetLevels())
+	for (auto &&Level : World->GetLevels())
 	{
 		StoreLevel(Level, bReleaseLevels, bBlocking);
-	}	
+	}
 }
 
-void USpudSubsystem::StoreLevel(ULevel* Level, bool bRelease, bool bBlocking)
+void USpudSubsystem::StoreLevel(ULevel *Level, bool bRelease, bool bBlocking)
 {
 	const FString LevelName = USpudState::GetLevelName(Level);
 	PreLevelStore.Broadcast(LevelName);
@@ -491,7 +478,7 @@ void USpudSubsystem::StoreLevel(ULevel* Level, bool bRelease, bool bBlocking)
 	PostLevelStore.Broadcast(LevelName, true);
 }
 
-void USpudSubsystem::LoadGame(const FString& SlotName)
+void USpudSubsystem::LoadGame(const FString &SlotName)
 {
 	if (!ServerCheck(true))
 	{
@@ -511,7 +498,7 @@ void USpudSubsystem::LoadGame(const FString& SlotName)
 	IsRestoringState = true;
 	PreLoadGame.Broadcast(SlotName);
 
-	UE_LOG(LogSpudSubsystem, Verbose, TEXT("Loading Game from slot %s"), *SlotName);		
+	UE_LOG(LogSpudSubsystem, Verbose, TEXT("Loading Game from slot %s"), *SlotName);
 
 	auto State = GetActiveState();
 
@@ -519,10 +506,10 @@ void USpudSubsystem::LoadGame(const FString& SlotName)
 
 	// TODO: async load
 
-	IFileManager& FileMgr = IFileManager::Get();
+	IFileManager &FileMgr = IFileManager::Get();
 	auto Archive = TUniquePtr<FArchive>(FileMgr.CreateFileReader(*GetSaveGameFilePath(SlotName)));
 
-	if(Archive)
+	if (Archive)
 	{
 		// Load only global data and page in level data as needed
 		State->LoadFromArchive(*Archive, false);
@@ -537,7 +524,7 @@ void USpudSubsystem::LoadGame(const FString& SlotName)
 	}
 	else
 	{
-		UE_LOG(LogSpudSubsystem, Error, TEXT("Error while opening save game for slot %s"), *SlotName);		
+		UE_LOG(LogSpudSubsystem, Error, TEXT("Error while opening save game for slot %s"), *SlotName);
 		LoadComplete(SlotName, false);
 		return;
 	}
@@ -557,12 +544,11 @@ void USpudSubsystem::LoadGame(const FString& SlotName)
 
 	// This is deferred, final load process will happen in PostLoadMap
 	SlotNameInProgress = SlotName;
-	UE_LOG(LogSpudSubsystem, Verbose, TEXT("(Re)loading map: %s"), *State->GetPersistentLevel());		
+	UE_LOG(LogSpudSubsystem, Verbose, TEXT("(Re)loading map: %s"), *State->GetPersistentLevel());
 	UGameplayStatics::OpenLevel(GetWorld(), FName(State->GetPersistentLevel()));
 }
 
-
-void USpudSubsystem::LoadComplete(const FString& SlotName, bool bSuccess)
+void USpudSubsystem::LoadComplete(const FString &SlotName, bool bSuccess)
 {
 	CurrentState = ESpudSystemState::RunningIdle;
 	IsRestoringState = false;
@@ -570,29 +556,29 @@ void USpudSubsystem::LoadComplete(const FString& SlotName, bool bSuccess)
 	PostLoadGame.Broadcast(SlotName, bSuccess);
 }
 
-bool USpudSubsystem::DeleteSave(const FString& SlotName)
+bool USpudSubsystem::DeleteSave(const FString &SlotName)
 {
 	if (!ServerCheck(true))
 		return false;
-	
-	IFileManager& FileMgr = IFileManager::Get();
+
+	IFileManager &FileMgr = IFileManager::Get();
 	return FileMgr.Delete(*GetSaveGameFilePath(SlotName), false, true);
 }
 
-void USpudSubsystem::AddPersistentGlobalObject(UObject* Obj)
+void USpudSubsystem::AddPersistentGlobalObject(UObject *Obj)
 {
-	GlobalObjects.AddUnique(TWeakObjectPtr<UObject>(Obj));	
+	GlobalObjects.AddUnique(TWeakObjectPtr<UObject>(Obj));
 }
 
-void USpudSubsystem::AddPersistentGlobalObjectWithName(UObject* Obj, const FString& Name)
+void USpudSubsystem::AddPersistentGlobalObjectWithName(UObject *Obj, const FString &Name)
 {
 	NamedGlobalObjects.Add(Name, Obj);
 }
 
-void USpudSubsystem::RemovePersistentGlobalObject(UObject* Obj)
+void USpudSubsystem::RemovePersistentGlobalObject(UObject *Obj)
 {
 	GlobalObjects.Remove(TWeakObjectPtr<UObject>(Obj));
-	
+
 	for (auto It = NamedGlobalObjects.CreateIterator(); It; ++It)
 	{
 		if (It.Value().Get() == Obj)
@@ -600,18 +586,17 @@ void USpudSubsystem::RemovePersistentGlobalObject(UObject* Obj)
 	}
 }
 
-void USpudSubsystem::ClearLevelState(const FString& LevelName)
+void USpudSubsystem::ClearLevelState(const FString &LevelName)
 {
 	GetActiveState()->ClearLevel(LevelName);
-	
 }
 
-void USpudSubsystem::AddRequestForStreamingLevel(UObject* Requester, FName LevelName, bool BlockingLoad)
+void USpudSubsystem::AddRequestForStreamingLevel(UObject *Requester, FName LevelName, bool BlockingLoad)
 {
 	if (!ServerCheck(false))
 		return;
 
-	auto && Request = LevelRequests.FindOrAdd(LevelName);
+	auto &&Request = LevelRequests.FindOrAdd(LevelName);
 	const int PrevRequesters = Request.Requesters.Num();
 	Request.Requesters.AddUnique(Requester);
 	if (Request.bPendingUnload)
@@ -621,12 +606,12 @@ void USpudSubsystem::AddRequestForStreamingLevel(UObject* Requester, FName Level
 	}
 	else if (PrevRequesters == 0)
 	{
-		// Load on the first request only		
-		LoadStreamLevel(LevelName, BlockingLoad);		
+		// Load on the first request only
+		LoadStreamLevel(LevelName, BlockingLoad);
 	}
 }
 
-void USpudSubsystem::WithdrawRequestForStreamingLevel(UObject* Requester, FName LevelName)
+void USpudSubsystem::WithdrawRequestForStreamingLevel(UObject *Requester, FName LevelName)
 {
 	if (!ServerCheck(false))
 		return;
@@ -651,26 +636,25 @@ void USpudSubsystem::StartUnloadTimer()
 		// Set up a timer which repeatedly checks for actual unload
 		// This doesn't need to be every tick, just every 0.5s
 		GetWorld()->GetTimerManager().SetTimer(StreamLevelUnloadTimerHandle, this, &USpudSubsystem::CheckStreamUnload, 0.5, true);
-	}	
+	}
 }
-
 
 void USpudSubsystem::StopUnloadTimer()
 {
 	if (StreamLevelUnloadTimerHandle.IsValid())
 	{
 		GetWorld()->GetTimerManager().ClearTimer(StreamLevelUnloadTimerHandle);
-	}	
+	}
 }
 
 void USpudSubsystem::CheckStreamUnload()
 {
 	const float UnloadBeforeTime = UGameplayStatics::GetTimeSeconds(GetWorld()) - StreamLevelUnloadDelay;
 	bool bAnyStillWaiting = false;
-	for (auto && Pair : LevelRequests)
+	for (auto &&Pair : LevelRequests)
 	{
-		const FName& LevelName = Pair.Key;
-		FStreamLevelRequests& Request = Pair.Value;
+		const FName &LevelName = Pair.Key;
+		FStreamLevelRequests &Request = Pair.Value;
 		if (Request.bPendingUnload)
 		{
 			if (Request.Requesters.Num() == 0 &&
@@ -689,19 +673,16 @@ void USpudSubsystem::CheckStreamUnload()
 		StopUnloadTimer();
 }
 
-
-
-
 void USpudSubsystem::LoadStreamLevel(FName LevelName, bool Blocking)
 {
 	FScopeLock PendingLoadLock(&LevelsPendingLoadMutex);
 	PreLoadStreamingLevel.Broadcast(LevelName);
-	
+
 	FLatentActionInfo Latent;
 	Latent.ExecutionFunction = "PostLoadStreamLevel";
 	Latent.CallbackTarget = this;
 	int32 RequestID = LoadUnloadRequests++; // overflow is OK
-	Latent.UUID = RequestID; // this eliminates duplicate calls so should be unique
+	Latent.UUID = RequestID;				// this eliminates duplicate calls so should be unique
 	Latent.Linkage = RequestID;
 	LevelsPendingLoad.Add(RequestID, LevelName);
 
@@ -719,7 +700,7 @@ void USpudSubsystem::LoadStreamLevel(FName LevelName, bool Blocking)
 void USpudSubsystem::PostLoadStreamLevel(int32 LinkID)
 {
 	FScopeLock PendingLoadLock(&LevelsPendingLoadMutex);
-	
+
 	// We should be able to obtain the level name
 	if (LevelsPendingLoad.Contains(LinkID))
 	{
@@ -738,7 +719,7 @@ void USpudSubsystem::PostLoadStreamLevel(int32 LinkID)
 		if (StreamLevel)
 		{
 			StreamLevel->SetShouldBeVisible(true);
-		}		
+		}
 
 		if (!bSupportWorldPartition)
 		{
@@ -752,7 +733,6 @@ void USpudSubsystem::PostLoadStreamLevel(int32 LinkID)
 	}
 }
 
-
 void USpudSubsystem::PostLoadStreamLevelGameThread(FName LevelName)
 {
 	PostLoadStreamingLevel.Broadcast(LevelName);
@@ -760,7 +740,7 @@ void USpudSubsystem::PostLoadStreamLevelGameThread(FName LevelName)
 
 	if (StreamLevel)
 	{
-		ULevel* Level = StreamLevel->GetLoadedLevel();
+		ULevel *Level = StreamLevel->GetLoadedLevel();
 		if (!Level)
 		{
 			UE_LOG(LogSpudSubsystem, Log, TEXT("PostLoadStreamLevel called for %s but level is null; probably unloaded again?"), *LevelName.ToString());
@@ -794,7 +774,7 @@ void USpudSubsystem::UnloadStreamLevel(FName LevelName)
 
 	if (StreamLevel)
 	{
-		ULevel* Level = StreamLevel->GetLoadedLevel();
+		ULevel *Level = StreamLevel->GetLoadedLevel();
 		if (!Level)
 		{
 			// Already unloaded
@@ -807,7 +787,7 @@ void USpudSubsystem::UnloadStreamLevel(FName LevelName)
 			// If using WP, the hidden event will trigger this instead
 			HandleLevelUnloaded(Level);
 		}
-		
+
 		// Now unload
 		FScopeLock PendingUnloadLock(&LevelsPendingUnloadMutex);
 
@@ -815,11 +795,11 @@ void USpudSubsystem::UnloadStreamLevel(FName LevelName)
 		Latent.ExecutionFunction = "PostUnloadStreamLevel";
 		Latent.CallbackTarget = this;
 		int32 RequestID = LoadUnloadRequests++; // overflow is OK
-		Latent.UUID = RequestID; // this eliminates duplicate calls so should be unique
+		Latent.UUID = RequestID;				// this eliminates duplicate calls so should be unique
 		Latent.Linkage = RequestID;
 		LevelsPendingUnload.Add(RequestID, LevelName);
 		UGameplayStatics::UnloadStreamLevel(GetWorld(), LevelName, Latent, false);
-	}	
+	}
 }
 
 void USpudSubsystem::ForceReset()
@@ -833,7 +813,6 @@ void USpudSubsystem::SetUserDataModelVersion(int32 Version)
 	GCurrentUserDataModelVersion = Version;
 }
 
-
 int32 USpudSubsystem::GetUserDataModelVersion() const
 {
 	return GCurrentUserDataModelVersion;
@@ -842,16 +821,13 @@ int32 USpudSubsystem::GetUserDataModelVersion() const
 void USpudSubsystem::PostUnloadStreamLevel(int32 LinkID)
 {
 	FScopeLock PendingUnloadLock(&LevelsPendingUnloadMutex);
-	
+
 	const FName LevelName = LevelsPendingUnload.FindAndRemoveChecked(LinkID);
 
 	// Pass back to the game thread, streaming calls happen in loading thread?
 	AsyncTask(ENamedThreads::GameThread, [this, LevelName]()
-    {
-        PostUnloadStreamLevelGameThread(LevelName);				
-    });
+			  { PostUnloadStreamLevelGameThread(LevelName); });
 }
-
 
 void USpudSubsystem::PostUnloadStreamLevelGameThread(FName LevelName)
 {
@@ -863,9 +839,9 @@ void USpudSubsystem::SubscribeAllLevelObjectEvents()
 	const auto World = GetWorld();
 	if (IsValid(World))
 	{
-		for (ULevel* Level : World->GetLevels())
+		for (ULevel *Level : World->GetLevels())
 		{
-			SubscribeLevelObjectEvents(Level);			
+			SubscribeLevelObjectEvents(Level);
 		}
 	}
 }
@@ -875,31 +851,30 @@ void USpudSubsystem::UnsubscribeAllLevelObjectEvents()
 	const auto World = GetWorld();
 	if (IsValid(World))
 	{
-		for (ULevel* Level : World->GetLevels())
+		for (ULevel *Level : World->GetLevels())
 		{
-			UnsubscribeLevelObjectEvents(Level);			
+			UnsubscribeLevelObjectEvents(Level);
 		}
 	}
 }
 
-
-void USpudSubsystem::SubscribeLevelObjectEvents(ULevel* Level)
+void USpudSubsystem::SubscribeLevelObjectEvents(ULevel *Level)
 {
 	if (Level)
 	{
 		for (auto Actor : Level->Actors)
 		{
 			if (!SpudPropertyUtil::IsPersistentObject(Actor))
-				continue;			
+				continue;
 			// We don't care about runtime spawned actors, only level actors
 			// Runtime actors will just be omitted, level actors need to be logged as destroyed
 			if (!SpudPropertyUtil::IsRuntimeActor(Actor))
-				Actor->OnDestroyed.AddUniqueDynamic(this, &USpudSubsystem::OnActorDestroyed);			
-		}		
-	}	
+				Actor->OnDestroyed.AddUniqueDynamic(this, &USpudSubsystem::OnActorDestroyed);
+		}
+	}
 }
 
-void USpudSubsystem::UnsubscribeLevelObjectEvents(ULevel* Level)
+void USpudSubsystem::UnsubscribeLevelObjectEvents(ULevel *Level)
 {
 	if (Level)
 	{
@@ -909,12 +884,12 @@ void USpudSubsystem::UnsubscribeLevelObjectEvents(ULevel* Level)
 				continue;
 
 			if (!SpudPropertyUtil::IsRuntimeActor(Actor))
-				Actor->OnDestroyed.RemoveDynamic(this, &USpudSubsystem::OnActorDestroyed);			
-		}		
-	}	
+				Actor->OnDestroyed.RemoveDynamic(this, &USpudSubsystem::OnActorDestroyed);
+		}
+	}
 }
 
-void USpudSubsystem::OnActorDestroyed(AActor* Actor)
+void USpudSubsystem::OnActorDestroyed(AActor *Actor)
 {
 	if (CurrentState == ESpudSystemState::RunningIdle)
 	{
@@ -931,10 +906,10 @@ void USpudSubsystem::OnActorDestroyed(AActor* Actor)
 struct FSaveSorter
 {
 	ESpudSaveSorting Sorting;
-	
+
 	FSaveSorter(ESpudSaveSorting S) : Sorting(S) {}
-	
-	FORCEINLINE bool operator()(const USpudSaveGameInfo& A, const USpudSaveGameInfo& B ) const
+
+	FORCEINLINE bool operator()(const USpudSaveGameInfo &A, const USpudSaveGameInfo &B) const
 	{
 		switch (Sorting)
 		{
@@ -952,21 +927,21 @@ struct FSaveSorter
 	}
 };
 
-TArray<USpudSaveGameInfo*> USpudSubsystem::GetSaveGameList(bool bIncludeQuickSave, bool bIncludeAutoSave, ESpudSaveSorting Sorting)
+TArray<USpudSaveGameInfo *> USpudSubsystem::GetSaveGameList(bool bIncludeQuickSave, bool bIncludeAutoSave, ESpudSaveSorting Sorting)
 {
 
 	TArray<FString> SaveFiles;
 	ListSaveGameFiles(SaveFiles);
 
-	TArray<USpudSaveGameInfo*> Ret;
-	for (auto && File : SaveFiles)
+	TArray<USpudSaveGameInfo *> Ret;
+	for (auto &&File : SaveFiles)
 	{
 		FString SlotName = FPaths::GetBaseFilename(File);
 
 		if ((!bIncludeQuickSave && SlotName == SPUD_QUICKSAVE_SLOTNAME) ||
 			(!bIncludeAutoSave && SlotName == SPUD_AUTOSAVE_SLOTNAME))
 		{
-			continue;			
+			continue;
 		}
 
 		auto Info = GetSaveGameInfo(SlotName);
@@ -982,47 +957,46 @@ TArray<USpudSaveGameInfo*> USpudSubsystem::GetSaveGameList(bool bIncludeQuickSav
 	return Ret;
 }
 
-USpudSaveGameInfo* USpudSubsystem::GetSaveGameInfo(const FString& SlotName)
+USpudSaveGameInfo *USpudSubsystem::GetSaveGameInfo(const FString &SlotName)
 {
-	IFileManager& FM = IFileManager::Get();
+	IFileManager &FM = IFileManager::Get();
 	// We want to parse just the very first part of the file, not all of it
 	FString AbsoluteFilename = FPaths::Combine(GetSaveGameDirectory(), SlotName + ".sav");
 	auto Archive = TUniquePtr<FArchive>(FM.CreateFileReader(*AbsoluteFilename));
 
-	if(!Archive)
+	if (!Archive)
 	{
 		UE_LOG(LogSpudSubsystem, Error, TEXT("Unable to open %s for reading info"), *AbsoluteFilename);
 		return nullptr;
 	}
-		
+
 	auto Info = NewObject<USpudSaveGameInfo>();
 	Info->SlotName = SlotName;
 
 	USpudState::LoadSaveInfoFromArchive(*Archive, *Info);
 	Archive->Close();
-		
+
 	return Info;
 }
 
-USpudSaveGameInfo* USpudSubsystem::GetLatestSaveGame()
+USpudSaveGameInfo *USpudSubsystem::GetLatestSaveGame()
 {
 	auto SaveGameList = GetSaveGameList();
-	USpudSaveGameInfo* Best = nullptr;
+	USpudSaveGameInfo *Best = nullptr;
 	for (auto Curr : SaveGameList)
 	{
 		if (!Best || Curr->Timestamp > Best->Timestamp)
-			Best = Curr;		
+			Best = Curr;
 	}
 	return Best;
 }
 
-
-USpudSaveGameInfo* USpudSubsystem::GetQuickSaveGame()
+USpudSaveGameInfo *USpudSubsystem::GetQuickSaveGame()
 {
 	return GetSaveGameInfo(SPUD_QUICKSAVE_SLOTNAME);
 }
 
-USpudSaveGameInfo* USpudSubsystem::GetAutoSaveGame()
+USpudSaveGameInfo *USpudSubsystem::GetAutoSaveGame()
 {
 	return GetSaveGameInfo(SPUD_AUTOSAVE_SLOTNAME);
 }
@@ -1032,16 +1006,16 @@ FString USpudSubsystem::GetSaveGameDirectory()
 	return FString::Printf(TEXT("%sSaveGames/"), *FPaths::ProjectSavedDir());
 }
 
-FString USpudSubsystem::GetSaveGameFilePath(const FString& SlotName)
+FString USpudSubsystem::GetSaveGameFilePath(const FString &SlotName)
 {
 	return FString::Printf(TEXT("%s%s.sav"), *GetSaveGameDirectory(), *SlotName);
 }
 
-void USpudSubsystem::ListSaveGameFiles(TArray<FString>& OutSaveFileList)
+void USpudSubsystem::ListSaveGameFiles(TArray<FString> &OutSaveFileList)
 {
-	IFileManager& FM = IFileManager::Get();
+	IFileManager &FM = IFileManager::Get();
 
-	FM.FindFiles(OutSaveFileList, *GetSaveGameDirectory(), TEXT(".sav"));	
+	FM.FindFiles(OutSaveFileList, *GetSaveGameDirectory(), TEXT(".sav"));
 }
 
 FString USpudSubsystem::GetActiveGameFolder()
@@ -1049,11 +1023,10 @@ FString USpudSubsystem::GetActiveGameFolder()
 	return FString::Printf(TEXT("%sCurrentGame/"), *FPaths::ProjectSavedDir());
 }
 
-FString USpudSubsystem::GetActiveGameFilePath(const FString& Name)
+FString USpudSubsystem::GetActiveGameFilePath(const FString &Name)
 {
 	return FString::Printf(TEXT("%sSaveGames/%s.sav"), *GetActiveGameFolder(), *Name);
 }
-
 
 class FUpgradeAllSavesAction : public FPendingLatentAction
 {
@@ -1066,18 +1039,18 @@ public:
 	{
 		bool bUpgradeAlways;
 		FSpudUpgradeSaveDelegate UpgradeCallback;
-		
+
 		FUpgradeTask(bool InUpgradeAlways, FSpudUpgradeSaveDelegate InCallback) : bUpgradeAlways(InUpgradeAlways), UpgradeCallback(InCallback) {}
 
-		bool SaveNeedsUpgrading(const USpudState* State)
+		bool SaveNeedsUpgrading(const USpudState *State)
 		{
 			if (State->SaveData.GlobalData.IsUserDataModelOutdated())
 				return true;
 
-			for (auto& Pair : State->SaveData.LevelDataMap)
+			for (auto &Pair : State->SaveData.LevelDataMap)
 			{
 				if (Pair.Value->IsUserDataModelOutdated())
-					return true;				
+					return true;
 			}
 
 			return false;
@@ -1087,17 +1060,17 @@ public:
 		{
 			if (!UpgradeCallback.IsBound())
 				return;
-			
-			IFileManager& FileMgr = IFileManager::Get();
+
+			IFileManager &FileMgr = IFileManager::Get();
 			TArray<FString> SaveFiles;
 			USpudSubsystem::ListSaveGameFiles(SaveFiles);
 
-			for (auto && SaveFile : SaveFiles)
+			for (auto &&SaveFile : SaveFiles)
 			{
 				FString AbsoluteFilename = FPaths::Combine(USpudSubsystem::GetSaveGameDirectory(), SaveFile);
 				auto Archive = TUniquePtr<FArchive>(FileMgr.CreateFileReader(*AbsoluteFilename));
 
-				if(Archive)
+				if (Archive)
 				{
 					auto State = NewObject<USpudState>();
 					// Load all data because we want to upgrade
@@ -1115,7 +1088,7 @@ public:
 						if (UpgradeCallback.Execute(State))
 						{
 							// Move aside old save
-							FString BackupFilename = AbsoluteFilename + ".bak"; 
+							FString BackupFilename = AbsoluteFilename + ".bak";
 							FileMgr.Move(*BackupFilename, *AbsoluteFilename, true, true);
 							// Now save
 							auto OutArchive = TUniquePtr<FArchive>(FileMgr.CreateFileWriter(*AbsoluteFilename));
@@ -1127,29 +1100,24 @@ public:
 					}
 				}
 			}
-
 		}
 
 		FORCEINLINE TStatId GetStatId() const
 		{
 			RETURN_QUICK_DECLARE_CYCLE_STAT(FUpgradeTask, STATGROUP_ThreadPoolAsyncTasks);
 		}
-	
 	};
 
 	FAsyncTask<FUpgradeTask> UpgradeTask;
 
-	FUpgradeAllSavesAction(bool UpgradeAlways, FSpudUpgradeSaveDelegate InUpgradeCallback, const FLatentActionInfo& LatentInfo)
-        : ExecutionFunction(LatentInfo.ExecutionFunction)
-        , OutputLink(LatentInfo.Linkage)
-        , CallbackTarget(LatentInfo.CallbackTarget)
-        , UpgradeTask(UpgradeAlways, InUpgradeCallback)
+	FUpgradeAllSavesAction(bool UpgradeAlways, FSpudUpgradeSaveDelegate InUpgradeCallback, const FLatentActionInfo &LatentInfo)
+		: ExecutionFunction(LatentInfo.ExecutionFunction), OutputLink(LatentInfo.Linkage), CallbackTarget(LatentInfo.CallbackTarget), UpgradeTask(UpgradeAlways, InUpgradeCallback)
 	{
 		// We do the actual upgrade work in a background task, this action is just to monitor when it's done
 		UpgradeTask.StartBackgroundTask();
 	}
 
-	virtual void UpdateOperation(FLatentResponse& Response) override
+	virtual void UpdateOperation(FLatentResponse &Response) override
 	{
 		// This is essentially a game thread tick. Finish the latent action when the background task is done
 		Response.FinishAndTriggerIf(UpgradeTask.IsDone(), ExecutionFunction, OutputLink, CallbackTarget);
@@ -1163,30 +1131,26 @@ public:
 #endif
 };
 
-
 void USpudSubsystem::UpgradeAllSaveGames(bool bUpgradeEvenIfNoUserDataModelVersionDifferences,
-                                         FSpudUpgradeSaveDelegate SaveNeedsUpgradingCallback,
-                                         FLatentActionInfo LatentInfo)
+										 FSpudUpgradeSaveDelegate SaveNeedsUpgradingCallback,
+										 FLatentActionInfo LatentInfo)
 {
-	
-	FLatentActionManager& LatentActionManager = GetGameInstance()->GetLatentActionManager();
+
+	FLatentActionManager &LatentActionManager = GetGameInstance()->GetLatentActionManager();
 	if (LatentActionManager.FindExistingAction<FUpgradeAllSavesAction>(LatentInfo.CallbackTarget, LatentInfo.UUID) == nullptr)
 	{
 		LatentActionManager.AddNewAction(LatentInfo.CallbackTarget, LatentInfo.UUID,
-		                                 new FUpgradeAllSavesAction(bUpgradeEvenIfNoUserDataModelVersionDifferences,
-		                                                            SaveNeedsUpgradingCallback, LatentInfo));
+										 new FUpgradeAllSavesAction(bUpgradeEvenIfNoUserDataModelVersionDifferences,
+																	SaveNeedsUpgradingCallback, LatentInfo));
 	}
 }
 
-USpudCustomSaveInfo* USpudSubsystem::CreateCustomSaveInfo()
+USpudCustomSaveInfo *USpudSubsystem::CreateCustomSaveInfo()
 {
 	return NewObject<USpudCustomSaveInfo>();
 }
 
-
-
 // FTickableGameObject begin
-
 
 void USpudSubsystem::Tick(float DeltaTime)
 {
@@ -1205,7 +1169,7 @@ void USpudSubsystem::Tick(float DeltaTime)
 		auto world = GetWorld();
 		if (world)
 		{
-			TSet<ULevelStreaming*> streamingLevels(world->GetStreamingLevels());
+			TSet<ULevelStreaming *> streamingLevels(world->GetStreamingLevels());
 
 			// Find newly added levels.
 			for (const auto level : streamingLevels)
@@ -1256,7 +1220,6 @@ TStatId USpudSubsystem::GetStatId() const
 	RETURN_QUICK_DECLARE_CYCLE_STAT(USpudSubsystem, STATGROUP_Tickables);
 }
 
-
 // FTickableGameObject end
 
 void USpudStreamingLevelWrapper::OnLevelShown()
@@ -1265,7 +1228,7 @@ void USpudStreamingLevelWrapper::OnLevelShown()
 	if (level)
 	{
 		UE_LOG(LogSpudSubsystem, Verbose, TEXT("Level shown: %s"), *USpudState::GetLevelName(level));
-		
+
 		auto spud = UGameInstance::GetSubsystem<USpudSubsystem>(GetWorld()->GetGameInstance());
 		if (ensureMsgf(spud, TEXT("Unable to find SpudSubsystem, so cannot load the state of level: %s"), *USpudState::GetLevelName(level)))
 		{
@@ -1283,7 +1246,7 @@ void USpudStreamingLevelWrapper::OnLevelHidden()
 	{
 		const auto levelName = USpudState::GetLevelName(level);
 		UE_LOG(LogSpudSubsystem, Verbose, TEXT("Level hidden: %s"), *levelName);
-		
+
 		// We no longer crash, but we still need to know when this happens, as we really should be
 		// storing the state of the unloaded level
 		auto spud = UGameInstance::GetSubsystem<USpudSubsystem>(GetWorld()->GetGameInstance());
@@ -1295,4 +1258,14 @@ void USpudStreamingLevelWrapper::OnLevelHidden()
 	}
 	else
 		UE_LOG(LogSpudSubsystem, Verbose, TEXT("No loaded level"));
+}
+
+USpudCustomSaveInfo *USpudSubsystem::GetCustomTacticsSaveInfo()
+{
+	USpudCustomSaveInfo *NewSaveInfo = NewObject<USpudCustomSaveInfo>(this);
+	FString LevelName = GetWorld()->GetMapName();
+	// Strip out any path information if you just want the level name
+	LevelName = FPackageName::GetShortName(LevelName);
+	NewSaveInfo->SetString("AreaName", LevelName);
+	return NewSaveInfo;
 }
