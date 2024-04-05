@@ -1266,6 +1266,9 @@ USpudCustomSaveInfo *USpudSubsystem::GetCustomTacticsSaveInfo()
 	FString LevelName = GetWorld()->GetMapName();
 	// Strip out any path information if you just want the level name
 	LevelName = FPackageName::GetShortName(LevelName);
+	// Remove the PIE prefix if present
+	LevelName = GetWorld()->RemovePIEPrefix(LevelName);
+
 	NewSaveInfo->SetString("AreaName", LevelName);
 	return NewSaveInfo;
 }
