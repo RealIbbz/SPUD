@@ -40,7 +40,7 @@ void USpudSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 			{
 				// TODO: make this more configurable, use a known save etc
 				NewGame(false); },
-			0.2, false);
+			0.2f, false);
 	}
 
 #endif
@@ -441,7 +441,7 @@ void USpudSubsystem::HandleLevelLoaded(FName LevelName)
 			World->GetTimerManager().SetTimer(H, [this, LevelName]()
 			{
 				PostLoadStreamLevelGameThread(LevelName);
-			}, 0.01, false);
+			}, 0.01f, false);
 		} });
 }
 

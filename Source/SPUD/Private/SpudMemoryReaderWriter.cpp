@@ -15,7 +15,7 @@ FArchive& FSpudMemoryReader::operator<<(UObject*& Obj)
 	FString LoadedString;
 	*this << LoadedString;
 	// look up the object by fully qualified pathname
-	Obj = FindObject<UObject>(nullptr, *LoadedString, false);
+	Obj = FindObject<UObject>(nullptr, *LoadedString, EFindObjectFlags::None);
 	// If we couldn't find it, and we want to load it, do that
 	if(!Obj)
 	{
