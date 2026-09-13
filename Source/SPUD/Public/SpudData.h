@@ -38,6 +38,8 @@ extern int32 GCurrentUserDataModelVersion;
 #define SPUDDATA_PROPERTYID_NONE 0xFFFFFFFF
 #define SPUDDATA_PREFIXID_NONE 0xFFFFFFFF
 #define SPUDDATA_CLASSID_NONE 0xFFFFFFFF
+// Version 3: an asset path follows this marker instead of nested object properties.
+#define SPUDDATA_CLASSID_ASSET 0xFFFFFFFE
 
 // None of the structs in this file are exposed to Blueprints. They are theoretically available to external code
 // via C++ but honestly external code should just use the API on USpudSubsystem, or USpudState at a push (save upgrading)
@@ -88,6 +90,7 @@ enum SPUD_API ESpudStorageType // (stored as uint16 but not using enum class to 
 	ESST_String = 30,
 	ESST_Name = 31,
 	ESST_Text = 32,
+	ESST_SoftObjectPath = 33,
 
 	/// Not directly supported but embedded in an FRecord
 	ESST_OpaqueRecord = 64,

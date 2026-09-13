@@ -4,7 +4,7 @@
 #include "Serialization/ArchiveUObject.h"
 
 /// Custom version of FMemoryWriter so that we can add methods from FArchiveUObject
-class FSpudMemoryWriter : public TMemoryWriter<32>
+class SPUD_API FSpudMemoryWriter : public TMemoryWriter<32>
 {
 	using Super = TMemoryWriter<32>;
 
@@ -18,7 +18,7 @@ public:
 	virtual FArchive& operator<<(UObject*& Value) override;
 };
 
-class FSpudMemoryReader : public FMemoryReader
+class SPUD_API FSpudMemoryReader : public FMemoryReader
 {
 public:
 	FSpudMemoryReader(const TArray<uint8>& InBytes, bool bIsPersistent = false)

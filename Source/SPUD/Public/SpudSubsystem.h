@@ -265,6 +265,9 @@ public:
 	UFUNCTION(BlueprintPure)
 	bool IsLoadingGame() const { return CurrentState == ESpudSystemState::LoadingGame; }
 
+	/// Includes restoring streamed levels as well as a full game load.
+	bool IsRestoringGameState() const { return IsRestoringState; }
+
 	UFUNCTION(BlueprintPure)
 	bool IsSavingGame() const { return CurrentState == ESpudSystemState::SavingGame; }
 

@@ -98,13 +98,9 @@ void USpudState::StorePropertyVisitor::StoreNestedUObjectIfNeeded(UObject* RootO
 			const void* DataPtr = Property->ContainerPtrToValuePtr<void>(ContainerPtr);
 			const auto Obj = OProp->GetObjectPropertyValue(DataPtr);
 
-			if (Obj)
+			// Assets are references, never owned objects whose properties we should store.
+			if (Obj && !Obj->IsAsset())
 			{
-				// Storing asset links is not supported / sensible. You should store core state instead and derive
-				// assets from that in a post-load hook, otherwise it just makes your saves fragile / bloated to store derived data
-				checkf(!Obj->IsAsset(), TEXT("Cannot store %s from property %s/%s - Storing links to assets is not supported"),
-					*Obj->GetName(), *RootObject->GetName(), *Property->GetNameCPP());
-
 				const bool IsCallback = Obj->GetClass()->ImplementsInterface(USpudObjectCallback::StaticClass());
 
 				if (IsCallback)
@@ -822,9 +818,8 @@ void USpudState::RestorePropertyVisitor::RestoreNestedUObjectIfNeeded(UObject* R
 			const void* DataPtr = Property->ContainerPtrToValuePtr<void>(ContainerPtr);
 			const auto Obj = OProp->GetObjectPropertyValue(DataPtr);
 
-			// By this point, the restore will have created the instance if the data was non-null, since the
-			// property before this contains the class (or null)
-			if (Obj)
+			// Asset references were resolved by the property reader. Never restore into a shared asset.
+			if (Obj && !Obj->IsAsset())
 			{
 				const bool IsCallback = Obj->GetClass()->ImplementsInterface(USpudObjectCallback::StaticClass());
 

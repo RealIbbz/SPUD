@@ -165,6 +165,10 @@ uint16 SpudPropertyUtil::GetPropertyDataType(const FProperty* Prop)
 		else
 			Ret = ESST_CustomStruct; // Anything else is a custom struct
 	}
+	else if (CastField<FSoftObjectProperty>(ActualProp))
+	{
+		Ret = ESST_SoftObjectPath;
+	}
 	else if (CastField<FObjectProperty>(ActualProp))
 	{
 		// Could be:
@@ -495,6 +499,14 @@ FString SpudPropertyUtil::WriteNestedUObjectPropertyData(FObjectProperty* OProp,
 	uint32 ClassID;
 	FString Ret = "NULL";
 	// We already have the Actor so no need to get property value
+	if (UObj && UObj->IsAsset())
+	{
+		ClassID = SPUDDATA_CLASSID_ASSET;
+		Out << ClassID;
+		Ret = UObj->GetPathName();
+		Out << Ret;
+		return Ret;
+	}
 	if (UObj)
 	{		
 		// UObjects (not actor refs) first store the class (as an ID)
@@ -549,6 +561,14 @@ bool SpudPropertyUtil::TryWriteUObjectPropertyData(FProperty* Property,
                                                    FSpudClassMetadata& Meta,
                                                    FArchive& Out)
 {
+	if (const auto SoftProperty = CastField<FSoftObjectProperty>(Property))
+	{
+		if (!bIsArrayElement)
+			RegisterProperty(Property, PrefixID, ClassDef, PropertyOffsets, Meta, Out);
+		FString Path = SoftProperty->GetPropertyValue(Data).ToSoftObjectPath().ToString();
+		Out << Path;
+		return true;
+	}
 	UObject* Obj = nullptr;
 	FObjectProperty* StrongProp = CastField<FObjectProperty>(Property);
 	FWeakObjectProperty* WeakProp = CastField<FWeakObjectProperty>(Property);
@@ -692,7 +712,23 @@ FString SpudPropertyUtil::ReadNestedUObjectPropertyData(FObjectProperty* OProp,
 	UObject* Object = nullptr;
 	FString Ret = "NULL";
 	
-	if (ClassID == SPUDDATA_CLASSID_NONE)
+	if (ClassID == SPUDDATA_CLASSID_ASSET)
+	{
+		In << Ret;
+		Object = Ret.IsEmpty() || In.IsError() ? nullptr : FSoftObjectPath(Ret).TryLoad();
+		if (Object && (!Object->IsAsset() || !Object->IsA(OProp->PropertyClass)))
+		{
+			UE_LOG(LogSpudProps, Error, TEXT("Asset %s is incompatible with property %s (%s)"),
+				*Ret, *OProp->GetName(), *OProp->PropertyClass->GetName());
+			Object = nullptr;
+		}
+		else if (!Object)
+		{
+			UE_LOG(LogSpudProps, Error, TEXT("Cannot resolve asset %s for property %s"), *Ret, *OProp->GetName());
+		}
+		OProp->SetObjectPropertyValue(Data, Object);
+	}
+	else if (ClassID == SPUDDATA_CLASSID_NONE)
 	{
 		// If stored data said it should be null, set it
 		OProp->SetObjectPropertyValue(Data, nullptr);
@@ -701,7 +737,7 @@ FString SpudPropertyUtil::ReadNestedUObjectPropertyData(FObjectProperty* OProp,
 	{
 		// If stored data is non-null, instantiate if needed
 		// Only instantiate if null, to allow user code to instantiate subclasses of property type if required
-		if (!IsValid(OProp->GetObjectPropertyValue(Data)))
+		if (!IsValid(OProp->GetObjectPropertyValue(Data)) || OProp->GetObjectPropertyValue(Data)->IsAsset())
 		{
 			const FString ClassName = Meta.GetClassNameFromID(ClassID);
 
@@ -769,6 +805,15 @@ bool SpudPropertyUtil::TryReadUObjectPropertyData(FProperty* Prop, void* Data,
                                                   const FSpudPropertyDef& StoredProperty, const RuntimeObjectMap* RuntimeObjects, ULevel* Level, UObject* Outer,
                                                   const FSpudClassMetadata& Meta, int Depth, FArchive& In)
 {
+	if (const auto SoftProperty = CastField<FSoftObjectProperty>(Prop))
+	{
+		if (!StoredPropertyTypeMatchesRuntime(Prop, StoredProperty, true))
+			return false;
+		FString Path;
+		In << Path;
+		SoftProperty->SetPropertyValue(Data, FSoftObjectPtr(FSoftObjectPath(Path)));
+		return true;
+	}
 	FObjectProperty* StrongProp = CastField<FObjectProperty>(Prop);
 	FWeakObjectProperty* WeakProp = CastField<FWeakObjectProperty>(Prop);
 	
